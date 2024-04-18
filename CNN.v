@@ -16,6 +16,7 @@ module CNN(
 
     // Registers
     reg [2:0] cs, ns;
+    reg flag;
     reg [2:0] x_cnt, y_cnt;
     reg signed [15:0] image [0:5][0:5];
     reg signed [15:0] kernel [0:2][0:2];
@@ -24,14 +25,19 @@ module CNN(
     reg signed [15:0] max [0:1][0:1];
     reg signed [15:0] outv [0:3];
     reg opt_reg;
+    reg opt_reg_2;
     reg out_valid_reg;
     reg [6:0] k;
+    reg [6:0] k_count;
+
     reg [15:0] c;
+    reg [15:0] c_count;
     reg [15:0] out;
     reg signed [15:0] max_value;
+    wire x,y;
     //reg [2:0] out_cnt;
     //reg [4:0] conv_cnt;
-    reg [1:0] x, y; // Declare 'x' and 'y' registers
+    //reg [1:0] x, y; // Declare 'x' and 'y' registers
     reg signed [15:0] result [0:3];
     integer i, j ;
 
@@ -49,65 +55,56 @@ module CNN(
               
         case (cs)
             IDLE: ns = in_valid ? READ : IDLE;
-            READ: ns = (k == 6'd45) ? CALC : READ;
+            READ: ns = (k_count == 6'd45) ? CALC : READ;
             CALC: ns = (c == 16'd20 && x_cnt == 3'd0 && y_cnt == 3'd0) ? OUT : CALC;
-            OUT:  ns = (out == 4) ? IDLE : OUT;
+            OUT:  ns = (out == 16'd4) ? IDLE : OUT;
             default: ns = IDLE;
         endcase
     end
-    // Output handling
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            out_valid <= 1'd0;
-            out <= 0;
-        end else begin
-            out_valid <= 1'd0;
-        end 
-    end
-
     // Opt reg setting //can you make this part be systhesis
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             opt_reg <= 1'd0;
-        end else if (ns == READ && k==6'd1) begin
-            opt_reg <= opt;
+            flag <= 1;
+        end else if (ns == IDLE ) begin
+            flag <= 1;
+            opt_reg <= 1;
         end 
+        else if(in_valid) begin
+            if(flag)begin
+                opt_reg <= opt;
+                flag <= 0;
+            end
+        end
     end
 
-    //Initalize
-    always @(posedge clk or negedge rst_n) begin
-        if(!rst_n)begin
-           // c = 16'd0;
-           // k = 16'd0;
-        end else if(in_valid)begin
-            c = 16'd0;
-        end else begin
-            k=6'd0;
-        end 
-    end
+   
     always @(posedge clk or negedge rst_n) begin
         if(!rst_n)begin
             out = 16'd0;
+        end else if (ns == IDLE) begin
+            out = 16'd0;
+        end else if (in_valid) begin
+            out = 16'd0;
         end else if(ns == OUT)begin
             out = out + 16'd1;
+        end else begin
+            out = 16'd0;
         end
     end
 
     always @(posedge clk or negedge rst_n) begin
         if(!rst_n)begin
-
+            out_valid <= 1'd0;
         end else if(in_valid)begin
             out_valid <= 1'b0;
-            out_data <= 16'd0;
-            out <= 0;
+        end else if(ns == OUT) begin
+            out_valid <=  1'b1;
         end else begin
-            out_data <= 16'd0;
+            out_valid <= 1'd0;
         end
 
     end
-
-    
-
 
     // Pointer
     always @(posedge clk or negedge rst_n) begin
@@ -163,7 +160,7 @@ module CNN(
         end else if (ns == OUT) begin
             y_cnt <= 3'd0;
             x_cnt <= 3'd0;
-        end
+        end 
     end
     
 
@@ -180,16 +177,6 @@ module CNN(
                     kernel[i][j] <= 8'd0;
                 end
             end
-            for (i = 0; i < 4; i++)begin
-                for(j = 0; j<4;j++) begin
-                    conv[i][j] <= 4'd0;
-                end
-            end
-            for(i = 0; i<2; i++)begin
-                for(j = 0; j<4;j++)begin
-                buffer[i][j] <= 8'd0;
-                end
-            end
         end else if(ns == READ)begin
             if(k<6'd36)begin
                 image[x_cnt][y_cnt] <= in_data;
@@ -197,22 +184,43 @@ module CNN(
                 kernel[x_cnt][y_cnt] <= in_data;
             end
             k = k+6'd1;
-        end else if(in_valid)begin
-            out_valid <= 1'b0;
-            out <= 0;
+            k_count <= k;
+        end else if(ns == OUT)begin
+            for (i = 0; i < 6; i++)begin
+                for(j = 0; j<6;j++) begin 
+                    image[i][j] <= 8'd0;
+                end
+            end
+            for (i = 0; i < 3; i++)begin
+                for(j = 0; j<3;j++) begin
+                    kernel[i][j] <= 8'd0;
+                end
+            end
+            
         end else begin
-            out_data <= 16'd0;
+            k=6'd0;
+            k_count<=6'd0;
         end
     end
 
     // Image, Kernel Input, Convolution, ReLU
     always @(posedge clk or negedge rst_n) begin
         if(!rst_n)begin
-            //out = 16'd0;
+            c_count <= 16'd0;
+            for(i = 0; i<2; i++)begin
+                for(j = 0; j<4;j++)begin
+                buffer[i][j] <= 8'd0;
+                end
+            end
+            for (i = 0; i < 4; i++)begin
+                for(j = 0; j<4;j++) begin
+                    conv[i][j] <= 4'd0;
+                end
+            end
         end else if(ns == CALC) begin
-            //c = 0;
             c = c+16'd1;
-            if(c<=16'd16) begin
+            c_count <= c;
+            if(c_count<=16'd16) begin
                 if(opt_reg == 1'd0)begin
                     conv[x_cnt][y_cnt] <= (image[x_cnt][y_cnt]*kernel[0][0] + image[x_cnt][y_cnt+1]*kernel[0][1] 
                     + image[x_cnt][y_cnt+2]*kernel[0][2]+ image[x_cnt+1][y_cnt]*kernel[1][0] + image[x_cnt+1][y_cnt+1]*kernel[1][1] 
@@ -246,26 +254,35 @@ module CNN(
                 outv[2] <= max[0][1];
                 outv[3] <= max[1][1];
             end
+        end else if(in_valid) begin
+            c = 16'd0;
+        end else begin
+            for (i = 0; i < 4; i++)begin
+                for(j = 0; j<4;j++) begin
+                    conv[i][j] <= 4'd0;
+                end
+            end
+            for(i = 0; i<2; i++)begin
+                for(j = 0; j<4;j++)begin
+                buffer[i][j] <= 8'd0;
+                end
+            end
         end
     end
 //Output
     always @(posedge clk or negedge rst_n)begin
         if (!rst_n) begin
-            //out_valid <= 1'b0;
             out_data <= 16'd0;
-            //out <= 16'd0;
-        end
-        else if (ns == OUT) begin
-            out_valid <= 1'b1;
-           // out = out +16'd1;
-            if(out <=4)begin
-                out_data <= outv[out-1];
+        end else if(in_valid) begin
+            out_data <= 16'd0;
+        end else if (ns == OUT) begin
+            if(out <=16'd4)begin
+                out_data <= outv[out-16'd1];
             end else begin
                 out_data <= 16'd0;
             end
         end
         else begin
-            out_valid <= 1'b0;
             out_data <= 16'd0;
         end
     end
